@@ -1,24 +1,27 @@
 package websocket
 
 import (
-	"bytes"
-	"fmt"
 	"net"
 	"strconv"
+	"sync"
+	"time"
 )
 
 const (
-	BUF_SIZE     = 1024
-	MAX_BUF_SIZE = 102809600
+	BUF_SIZE     = 1024     //每次从连接读取的最大字节数
+	MAX_BUF_SIZE = 10280960 //接受的最大长度
 )
 
 type Server struct {
 	listener *net.TCPListener
 
-	onconnection func()
-	onmessage    func()
-	onerror      func()
-	onclose      func()
+	connections map[string]*Conn
+	connMutex   *sync.Mutex
+
+	onconnection func(conn *Conn)
+	onmessage    func(conn *Conn)
+	onerror      func(conn *Conn)
+	onclose      func(conn *Conn)
 }
 
 func Listen(ip string, port int) *Server {
@@ -35,11 +38,13 @@ func Listen(ip string, port int) *Server {
 	}
 
 	server.listener = listener
+	server.connections = make(map[string]*Conn)
+	server.connMutex = new(sync.Mutex)
 
 	return server
 }
 
-func (s *Server) On(event string, callback func()) bool {
+func (s *Server) On(event string, callback func(conn *Conn)) bool {
 	switch event {
 	case "connection":
 		s.onconnection = callback
@@ -57,39 +62,52 @@ func (s *Server) On(event string, callback func()) bool {
 }
 
 func (s *Server) Run() {
-	handler := func(conn net.Conn) {
-		var buffer []byte
-		var sep = []byte{'\r', '\n'}
-
+	go func() {
 		for {
-			tmp := make([]byte, BUF_SIZE)
-
-			_, err := conn.Read(buffer)
+			conn, err := s.accept()
 			if err != nil {
-
+				continue
 			}
 
-			fmt.Println(bytes.TrimSpace(tmp))
-			buffer = append(buffer, tmp...)
-			if bytes.Contains(buffer, sep) {
-				break
+			s.addConn(conn)
+
+			if s.onconnection != nil {
+				s.onconnection(conn)
 			}
+
+			go conn.handleData()
 		}
-
-		fmt.Println('\r', '\n')
-
-		loc := bytes.Index(buffer, sep)
-		message := buffer[:(loc - 1)]
-		conn.Write(message)
-	}
+	}()
 
 	for {
-		conn, err := s.listener.Accept()
-		if err != nil {
-			continue
-		}
-
-		handler(conn)
-		conn.Close()
+		time.Sleep(10 * time.Second)
 	}
+}
+
+//接受客户端连接
+//函数会阻塞，直到有连接来临
+func (s *Server) accept() (*Conn, error) {
+	tcpConn, err := s.listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+
+	conn := new(Conn)
+	conn.Conn = tcpConn
+	conn.server = s
+	conn.handshaked = false
+
+	return conn, nil
+}
+
+func (s *Server) addConn(conn *Conn) {
+	s.connMutex.Lock()
+	s.connections[conn.RemoteAddr().String()] = conn
+	s.connMutex.Unlock()
+}
+
+func (s *Server) removeConn(conn *Conn) {
+	s.connMutex.Lock()
+	delete(s.connections, conn.RemoteAddr().String())
+	s.connMutex.Unlock()
 }
