@@ -3,7 +3,6 @@ package websocket
 import (
 	"bufio"
 	"encoding/binary"
-	"fmt"
 	"io"
 	"math/rand"
 )
@@ -45,7 +44,7 @@ func EncodeProtoBinary(b []byte) []byte {
 }
 
 //编码Pong响应
-func EncodeProtoPong(b []byte) []byte {
+func encodeProtoPong(b []byte) []byte {
 	return encodeProto(b, FRAME_TYPE_PONG)
 }
 
@@ -105,7 +104,6 @@ func encodeProto(b []byte, ft FrameType) (data []byte) {
 		payload = append(payload, b[i]^maskKey[i%4])
 	}
 	data = append(data, payload...)
-	fmt.Println(data)
 
 	return data
 }

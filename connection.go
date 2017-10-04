@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"encoding/base64"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -24,6 +23,16 @@ type Conn struct {
 func (c *Conn) Send(b []byte) (int, error) {
 	//编码程websocket消息
 	data := EncodeProtoText(b)
+	return c.sendRaw(data)
+}
+
+func (c *Conn) SendBinary(b []byte) (int, error) {
+	data := EncodeProtoBinary(b)
+	return c.sendRaw(data)
+}
+
+func (c *Conn) sendPong(b []byte) (int, error) {
+	data := encodeProtoPong(b)
 	return c.sendRaw(data)
 }
 
@@ -61,7 +70,6 @@ func (c *Conn) ReadData() []byte {
 func (c *Conn) handleData() {
 	defer func() {
 		err := recover()
-		fmt.Println(err)
 		if err != nil {
 			if c.server.onerror != nil {
 				c.server.onerror(c)
@@ -117,7 +125,6 @@ func (c *Conn) handleData() {
 
 			//解析websocket数据
 			message, ft, err := DecodeProto(c.Conn)
-			fmt.Println(message, ft, err)
 			if err != nil {
 				panic(err)
 			}
@@ -137,6 +144,7 @@ func (c *Conn) handleData() {
 					c.server.onmessage(c)
 				}
 			case FRAME_TYPE_PING:
+				c.sendPong(c.ReadData())
 			}
 		}
 	}
