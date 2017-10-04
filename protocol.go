@@ -48,6 +48,7 @@ func encodeProtoPong(b []byte) []byte {
 	return encodeProto(b, FRAME_TYPE_PONG)
 }
 
+//编码websocket
 func encodeProto(b []byte, ft FrameType) (data []byte) {
 	data = make([]byte, 0)
 

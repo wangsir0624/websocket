@@ -24,6 +24,7 @@ type Server struct {
 	onclose      func(conn *Conn)
 }
 
+//监听IP和端口
 func Listen(ip string, port int) *Server {
 	var server = new(Server)
 
@@ -44,6 +45,13 @@ func Listen(ip string, port int) *Server {
 	return server
 }
 
+//给服务器注册回调事件
+//事件主要有以下四个
+//connection 在连接成功时触发
+//message 在接受到客户端消息时触发
+//error 在发生错误时触发
+//close 在关闭连接时触发
+//回调函数均接受一个Conn结构体指针作为参数，无返回值
 func (s *Server) On(event string, callback func(conn *Conn)) bool {
 	switch event {
 	case "connection":
@@ -61,6 +69,7 @@ func (s *Server) On(event string, callback func(conn *Conn)) bool {
 	return true
 }
 
+//开始运行服务器
 func (s *Server) Run() {
 	go func() {
 		for {
@@ -84,6 +93,55 @@ func (s *Server) Run() {
 	}
 }
 
+//给所有连接广播一个消息
+func (s *Server) Broadcast(msg []byte) {
+	for _, c := range s.connections {
+		_, err := c.Send(msg)
+		if err != nil {
+			continue
+		}
+	}
+}
+
+//给其他连接广播一个消息
+//第二个参数为一个Conn结构体指针，除了此连接，其他连接都会广播此消息
+func (s *Server) BroadcastToOthers(msg []byte, conn *Conn) {
+	for _, c := range s.connections {
+		if c == conn {
+			continue
+		}
+
+		_, err := c.Send(msg)
+		if err != nil {
+			continue
+		}
+	}
+}
+
+//仅仅给回调函数返回true的连接广播消息
+func (s *Server) BroadcastOnly(msg []byte, only func(conn *Conn) bool) {
+	for _, c := range s.connections {
+		if only(c) {
+			_, err := c.Send(msg)
+			if err != nil {
+				continue
+			}
+		}
+	}
+}
+
+//仅仅给回调函数返回false的连接广播消息
+func (s *Server) BroadcastExcept(msg []byte, except func(conn *Conn) bool) {
+	for _, c := range s.connections {
+		if !except(c) {
+			_, err := c.Send(msg)
+			if err != nil {
+				continue
+			}
+		}
+	}
+}
+
 //接受客户端连接
 //函数会阻塞，直到有连接来临
 func (s *Server) accept() (*Conn, error) {
@@ -100,12 +158,14 @@ func (s *Server) accept() (*Conn, error) {
 	return conn, nil
 }
 
+//添加一个连接
 func (s *Server) addConn(conn *Conn) {
 	s.connMutex.Lock()
 	s.connections[conn.RemoteAddr().String()] = conn
 	s.connMutex.Unlock()
 }
 
+//移除一个连接
 func (s *Server) removeConn(conn *Conn) {
 	s.connMutex.Lock()
 	delete(s.connections, conn.RemoteAddr().String())

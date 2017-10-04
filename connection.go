@@ -20,22 +20,43 @@ type Conn struct {
 	data *bytes.Reader //连接接受到的数据
 }
 
+//获取服务器对象
+func (c *Conn) GetServer() *Server {
+	return c.server
+}
+
+//给客户端发送数据
 func (c *Conn) Send(b []byte) (int, error) {
 	//编码程websocket消息
 	data := EncodeProtoText(b)
 	return c.sendRaw(data)
 }
 
+//以二进制格式给客户端发送数据
 func (c *Conn) SendBinary(b []byte) (int, error) {
 	data := EncodeProtoBinary(b)
 	return c.sendRaw(data)
 }
 
+//读取连接接收到的消息
+func (c *Conn) ReadData() []byte {
+	if c.data == nil {
+		return []byte{}
+	}
+
+	d := make([]byte, c.data.Len())
+	_, _ = c.data.Read(d)
+
+	return d
+}
+
+//发送Pong响应
 func (c *Conn) sendPong(b []byte) (int, error) {
 	data := encodeProtoPong(b)
 	return c.sendRaw(data)
 }
 
+//不经过协议处理，直接发送给客户端
 func (c *Conn) sendRaw(b []byte) (int, error) {
 	length := 0
 	for {
@@ -55,18 +76,7 @@ func (c *Conn) sendRaw(b []byte) (int, error) {
 	}
 }
 
-//读取连接接收到的消息
-func (c *Conn) ReadData() []byte {
-	if c.data == nil {
-		return []byte{}
-	}
-
-	d := make([]byte, c.data.Len())
-	_, _ = c.data.Read(d)
-
-	return d
-}
-
+//处理来自客户端的消息
 func (c *Conn) handleData() {
 	defer func() {
 		err := recover()
