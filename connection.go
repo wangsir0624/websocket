@@ -5,7 +5,7 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"encoding/base64"
-	//"fmt"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -21,15 +21,17 @@ type Conn struct {
 	data *bytes.Reader //连接接受到的数据
 }
 
-/*
 func (c *Conn) Send(b []byte) (int, error) {
+	//编码程websocket消息
+	data := EncodeProtoText(b)
+	return c.sendRaw(data)
+}
 
-}*/
-
-func (c *Conn) SendRaw(b []byte) (int, error) {
+func (c *Conn) sendRaw(b []byte) (int, error) {
 	length := 0
 	for {
-		l, err := c.Write(b)
+		l, err := c.Write(b[length:])
+		length += l
 		if err != nil {
 			if err == io.ErrShortWrite {
 				continue
@@ -38,14 +40,14 @@ func (c *Conn) SendRaw(b []byte) (int, error) {
 			}
 		}
 
-		if length += l; length == len(b) {
+		if length == len(b) {
 			return length, nil
 		}
 	}
 }
 
-//获取连接接收到的消息
-func (c *Conn) GetData() []byte {
+//读取连接接收到的消息
+func (c *Conn) ReadData() []byte {
 	if c.data == nil {
 		return []byte{}
 	}
@@ -59,6 +61,7 @@ func (c *Conn) GetData() []byte {
 func (c *Conn) handleData() {
 	defer func() {
 		err := recover()
+		fmt.Println(err)
 		if err != nil {
 			if c.server.onerror != nil {
 				c.server.onerror(c)
@@ -102,7 +105,7 @@ func (c *Conn) handleData() {
 					"Sec-Websocket-Accept: " + websocketAccept + "\r\n" +
 					"\r\n")
 
-				_, err := c.SendRaw(resp)
+				_, err := c.sendRaw(resp)
 				if err != nil {
 					panic(err)
 				}
@@ -113,26 +116,27 @@ func (c *Conn) handleData() {
 			var message []byte
 
 			//解析websocket数据
-			message, err := DecodeProto(c.Conn)
+			message, ft, err := DecodeProto(c.Conn)
+			fmt.Println(message, ft, err)
 			if err != nil {
-				if err == ErrConnClosed {
-					if c.server.onclose != nil {
-						c.server.onclose(c)
-					}
-
-					c.server.removeConn(c)
-
-					c.Close()
-
-					return
-				} else {
-					panic(err)
-				}
+				panic(err)
 			}
-			c.data = bytes.NewReader(message)
+			switch ft {
+			case FRAME_TYPE_CLOSE:
+				if c.server.onclose != nil {
+					c.server.onclose(c)
+				}
 
-			if c.server.onmessage != nil {
-				c.server.onmessage(c)
+				c.server.removeConn(c)
+
+				c.Close()
+			case FRAME_TYPE_TEXT, FRAME_TYPE_BINARY:
+				c.data = bytes.NewReader(message)
+
+				if c.server.onmessage != nil {
+					c.server.onmessage(c)
+				}
+			case FRAME_TYPE_PING:
 			}
 		}
 	}
