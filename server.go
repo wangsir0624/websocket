@@ -80,10 +80,6 @@ func (s *Server) Run() {
 
 			s.addConn(conn)
 
-			if s.onconnection != nil {
-				s.onconnection(conn)
-			}
-
 			go conn.handleData()
 		}
 	}()

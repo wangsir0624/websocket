@@ -17,7 +17,9 @@ type Conn struct {
 
 	handshaked bool //是否完成握手
 
-	data *bytes.Reader //连接接受到的数据
+	data []byte //连接接受到的数据
+
+	err error //错误
 }
 
 //获取服务器对象
@@ -39,15 +41,13 @@ func (c *Conn) SendBinary(b []byte) (int, error) {
 }
 
 //读取连接接收到的消息
-func (c *Conn) ReadData() []byte {
-	if c.data == nil {
-		return []byte{}
-	}
+func (c *Conn) GetData() []byte {
+	return c.data
+}
 
-	d := make([]byte, c.data.Len())
-	_, _ = c.data.Read(d)
-
-	return d
+//获取错误信息
+func (c *Conn) GetErr() error {
+	return c.err
 }
 
 //发送Pong响应
@@ -80,8 +80,9 @@ func (c *Conn) sendRaw(b []byte) (int, error) {
 func (c *Conn) handleData() {
 	defer func() {
 		err := recover()
-		if err != nil {
+		if err, ok := err.(error); err != nil && ok {
 			if c.server.onerror != nil {
+				c.err = err
 				c.server.onerror(c)
 			}
 
@@ -99,36 +100,57 @@ func (c *Conn) handleData() {
 			br := bufio.NewReaderSize(c.Conn, BUF_SIZE)
 			r, err := http.ReadRequest(br)
 			if err != nil {
-				panic(err)
+				c.sendBadHandshakeRequestResponse()
+
+				c.server.removeConn(c)
+
+				c.Close()
+
+				return
 			} else {
 				h := r.Header
 
 				//获取Sec-Websocket-Key头部
 				websocketKey := h.Get("Sec-Websocket-Key")
+				upgrade := h.Get("Upgrade")
 
-				//计算Sec-Websocket-Accept头部
-				var tmp1 [sha1.Size]byte
-				var tmp2 = make([]byte, 64)
-				tmp1 = sha1.Sum([]byte(websocketKey + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))
-				base64.StdEncoding.Encode(tmp2, tmp1[:])
-				tmp2 = bytes.TrimRightFunc(tmp2, func(r rune) bool {
-					return r == 0
-				})
-				websocketAccept := string(tmp2)
+				if websocketKey != "" && upgrade == "websocket" {
+					//计算Sec-Websocket-Accept头部
+					var tmp1 [sha1.Size]byte
+					var tmp2 = make([]byte, 64)
+					tmp1 = sha1.Sum([]byte(websocketKey + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))
+					base64.StdEncoding.Encode(tmp2, tmp1[:])
+					tmp2 = bytes.TrimRightFunc(tmp2, func(r rune) bool {
+						return r == 0
+					})
+					websocketAccept := string(tmp2)
 
-				//返回响应
-				resp := []byte("HTTP/1.1 101 Switching Protocol\r\n" +
-					"Upgrade: websocket\r\n" +
-					"Connection: Upgrade\r\n" +
-					"Sec-Websocket-Accept: " + websocketAccept + "\r\n" +
-					"\r\n")
+					//返回响应
+					resp := []byte("HTTP/1.1 101 Switching Protocol\r\n" +
+						"Upgrade: websocket\r\n" +
+						"Connection: Upgrade\r\n" +
+						"Sec-Websocket-Accept: " + websocketAccept + "\r\n" +
+						"\r\n")
 
-				_, err := c.sendRaw(resp)
-				if err != nil {
-					panic(err)
+					_, err := c.sendRaw(resp)
+					if err != nil {
+						panic(err)
+					}
+
+					c.handshaked = true
+
+					if c.server.onconnection != nil {
+						c.server.onconnection(c)
+					}
+				} else {
+					c.sendBadHandshakeRequestResponse()
+
+					c.server.removeConn(c)
+
+					c.Close()
+
+					return
 				}
-
-				c.handshaked = true
 			}
 		} else {
 			var message []byte
@@ -147,15 +169,23 @@ func (c *Conn) handleData() {
 				c.server.removeConn(c)
 
 				c.Close()
+				return
 			case FRAME_TYPE_TEXT, FRAME_TYPE_BINARY:
-				c.data = bytes.NewReader(message)
+				c.data = message
 
 				if c.server.onmessage != nil {
 					c.server.onmessage(c)
 				}
 			case FRAME_TYPE_PING:
-				c.sendPong(c.ReadData())
+				c.sendPong(message)
 			}
 		}
 	}
+}
+
+func (c *Conn) sendBadHandshakeRequestResponse() {
+	r := "HTTP/1.1 400 BadRequest\r\n"
+	r += "\r\n"
+
+	c.sendRaw([]byte(r))
 }
