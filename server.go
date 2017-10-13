@@ -169,7 +169,14 @@ func (s *Server) Run() {
 
 //给所有连接广播一个消息
 func (s *Server) Broadcast(msg []byte) {
+	var tmpConnections = make([]*Conn, 0)
+	s.connMutex.Lock()
 	for _, c := range s.connections {
+		tmpConnections = append(tmpConnections, c)
+	}
+	s.connMutex.Unlock()
+
+	for _, c := range tmpConnections {
 		_, err := c.Send(msg)
 		if err != nil {
 			continue
@@ -180,7 +187,14 @@ func (s *Server) Broadcast(msg []byte) {
 //给其他连接广播一个消息
 //第二个参数为一个Conn结构体指针，除了此连接，其他连接都会广播此消息
 func (s *Server) BroadcastToOthers(msg []byte, conn *Conn) {
+	var tmpConnections = make([]*Conn, 0)
+	s.connMutex.Lock()
 	for _, c := range s.connections {
+		tmpConnections = append(tmpConnections, c)
+	}
+	s.connMutex.Unlock()
+
+	for _, c := range tmpConnections {
 		if c == conn {
 			continue
 		}
@@ -194,7 +208,14 @@ func (s *Server) BroadcastToOthers(msg []byte, conn *Conn) {
 
 //仅仅给回调函数返回true的连接广播消息
 func (s *Server) BroadcastOnly(msg []byte, only func(conn *Conn) bool) {
+	var tmpConnections = make([]*Conn, 0)
+	s.connMutex.Lock()
 	for _, c := range s.connections {
+		tmpConnections = append(tmpConnections, c)
+	}
+	s.connMutex.Unlock()
+
+	for _, c := range tmpConnections {
 		if only(c) {
 			_, err := c.Send(msg)
 			if err != nil {
@@ -206,7 +227,14 @@ func (s *Server) BroadcastOnly(msg []byte, only func(conn *Conn) bool) {
 
 //仅仅给回调函数返回false的连接广播消息
 func (s *Server) BroadcastExcept(msg []byte, except func(conn *Conn) bool) {
+	var tmpConnections = make([]*Conn, 0)
+	s.connMutex.Lock()
 	for _, c := range s.connections {
+		tmpConnections = append(tmpConnections, c)
+	}
+	s.connMutex.Unlock()
+
+	for _, c := range tmpConnections {
 		if !except(c) {
 			_, err := c.Send(msg)
 			if err != nil {
